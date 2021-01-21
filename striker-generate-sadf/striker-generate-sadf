@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# This script is intended to allow a striker to generate sysstat sadf report
+# csvs.
+
+EachNode=()
+
+getnodes() {
+   for node in $(egrep '[0-1]0\.20\.[0-9]0.[0-9]' /etc/hosts); do
+      EachNode+="$node"
+   done
+}
+

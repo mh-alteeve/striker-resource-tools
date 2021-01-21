@@ -1,0 +1,63 @@
+#!/bin/bash
+scratch=$(mktemp -d -t tmp.XXXXXXXXXX)
+
+datestamp=$(date +%F)
+hostsfile="/etc/hosts"
+#SCHostSelect="SELECT host_name FROM hosts;"
+FindExpression=".*${HOSTNAME}*.*sa[0-9]*"
+hostsarr=()
+
+echo "Started. Setting up environment..."
+#
+function finish {
+  rm -rf "$scratch"
+## Debug
+#  echo "Trap call."
+}
+trap finish EXIT
+
+
+if [ -d "~/sysstat\ dirs" ]; then
+   echo "Found existing ~/sysstat dirs/. Proceeding..."
+else
+   echo "~/sysstat dirs Directory does not exist. Creating it..."
+   mkdir ~/sysstat\ dirs
+fi
+echo "Entering ~/sysstat dirs ..."
+cd ~/sysstat\ dirs
+#touch $scratch/nodeips;IFS=$'\n' && for line in $(su - postgres -c "psql scancore -c '$SCHostSelect' | egrep -e '[a-z]*-a.*n.*\.'" | sed 's/ //g'); do
+#   if [[ "$line" != *'DELETED' ]]; then
+#      printf '%s\n' $line >> $scratch/nodeips
+#   fi
+#done
+
+#nodeips=$(sort $scratch/nodeips)
+## To handle duplicates - needs switch?
+##nodeips=$(sort $scratch/nodeips | uniq -d)
+#
+#i=0 && for line in ${nodeips}; do
+#   ((i=i+1))
+### Verify the scp coommands are correct by printing. scp can wipe out directories!
+##   printf 'scp -r %s:/var/log/sa %s_Node%s_%s_sysstat/\n' $line $CustName $i $datestamp
+#   scp -r $line:/var/log/sa ${CustName}_Node${i}_${datestamp}_sysstat
+echo "Copying sysstat dir..."
+cp -r /var/log/sa ${HOSTNAME}_${datestamp}_sysstat
+#done
+### Debug
+#echo "==== Point of Interest ===="
+echo "Generating CSVs..."
+for file in $(find . -regex "$FindExpression" -type f); do
+  CSVName="${HOSTNAME}_$(date +%F)_30Day_sysstat.csv"
+## Once again for safety, we can verify the data parse and write commands are correct by printing, as they are potentially
+## destructive
+#  echo "sadf -dht $file -- -S -u -r -p -q -n DEV >> $CSVName"
+  sadf -dht $file -- -S -u -r -p -q -n DEV >> $CSVName
+done
+## Now we sort the lines of the csv by date
+echo "Sorting CSVs..."
+for csvfile in $(find . -regex ".*$(date +%F).*\.csv");do
+  sort -t\; -k3 $csvfile > ${csvfile}.sorted && mv ${csvfile}.sorted $csvfile
+done
+echo "Done!"
+## Debug
+#echo "nodeips is: $nodeips"

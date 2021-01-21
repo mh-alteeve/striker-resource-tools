@@ -1,0 +1,68 @@
+#!/bin/env perl
+
+use warnings;
+use strict;
+use Text::CSV;
+use Data::Dumper;
+
+my $sysstat_directory 	= "/var/log/sa/";
+my $hostname		= `hostname -s`;
+my $cell_zero		= '# hostname';
+
+# Chomp [remove trailing record separator {\n}] $hostname for later use.
+
+chomp($hostname);
+
+opendir(my $directory_handle, $sysstat_directory) || die "Can't locate ".$sysstat_directory."\n";
+
+my @file_list 		= grep { /^sa[0-9]./ } readdir($directory_handle);
+
+print <<EOF;
+============================================== Variables ===================================================
+Sysstat Directory....	$sysstat_directory\n 
+Cell Zero............   $cell_zero\n
+Hostname.............	$hostname\n
+EOF
+foreach my $filename (sort {$a cmp $b} @file_list)
+{
+	printf "Filepath.......	".$sysstat_directory.$filename."\n";
+	my $shell_call 	= "sadf -dht ".$sysstat_directory.$filename." -- -S -u -r -p -q -n DEV";
+
+	open(my $file_handle, "$shell_call 2>&1 |") || die "Failed to parse output of [".$shell_call."].\n";
+
+	my @csv_handle	= <$file_handle>;
+	close $file_handle;
+
+	sysstat_csv_to_hash(@csv_handle);
+}
+# Array of filesystems found on the system
+
+##
+# ===========================================================================================================
+#  Functions
+# ===========================================================================================================
+sub sysstat_csv_to_hash {
+
+	my @csv_lines	= @_;
+	my @test_keys	= split(/;/,@csv_lines[0]);
+
+	print join(" ", @test_keys);
+
+	shift(@csv_lines);
+	chomp(@csv_lines);
+
+	foreach my $line_of_stats (@csv_lines)
+	{
+		my @array_of_stats	= $line_of_stats;
+		print Dumper @array_of_stats;
+		#print $line."\n";
+	}
+#	shift(@csv_lines);
+#	print join(" ",@test_keys);
+#
+#	foreach my $line (@csv_lines)
+#	{
+#		print join("\n",@$line);
+#	}
+}
+sub 

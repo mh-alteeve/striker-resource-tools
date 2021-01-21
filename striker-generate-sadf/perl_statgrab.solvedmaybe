@@ -1,0 +1,44 @@
+#!/bin/env perl
+
+use warnings;
+use strict;
+
+my $sysstat_directory 	= "/var/log/sa/";
+chomp(my $hostname	= `hostname -s`);
+my $top_row		= '# hostname';
+
+opendir(my $directory_handle, $sysstat_directory) || die "Can't locate ".$sysstat_directory."\n";
+
+my @file_list 		= grep { /^sa[0-9]./ } readdir($directory_handle);
+
+printf "Hostname is ... ".$hostname."\n";
+foreach my $filename (sort {$a cmp $b} @file_list)
+{
+	#printf "Filepath: ....".$sysstat_directory.$filepath."\n"
+	my $shell_call 	= "sadf -dht ".$sysstat_directory.$filename." -- -S -u -r -p -q -n DEV";
+	#my %daily_stats	= 
+	printf "Shell Call - ...  ".$shell_call."\n";
+	open(my $file_handle, "$shell_call 2>&1 |") || die "Failed to parse output of [".$shell_call."].\n";
+	while (<$file_handle>)
+	{
+		chomp;
+		my $csv_line	= $_;
+		my @csv_values	= split(/;/,$csv_line);
+		if ($csv_values[0] =~ /$top_row/)
+		{
+			print "Keys...: @csv_values\n";
+		} else {
+			foreach my $value (@csv_values)
+			{
+				if ($value =~ /$hostname/)
+				{
+					print "It's a hostname!!\n";
+				}
+				print "Value..: ".$value."\n";
+			}
+		}
+	}
+
+}
+# Array of filesystems found on the system
+

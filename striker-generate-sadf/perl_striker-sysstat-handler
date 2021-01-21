@@ -1,0 +1,18 @@
+#!/usr/bin/perl
+# 
+
+use strict;
+use warnings;
+use AN::Tools;
+
+# Initialize a new local $an object
+my $an = AN::Tools->new;
+
+# Welcome!
+print "==] Hello world! [==\n";
+
+# Grab the value of path::ssh_config
+my $printable_ssh_config = $an->data->{path}{ssh_config};
+# And print it
+print $printable_ssh_config
+

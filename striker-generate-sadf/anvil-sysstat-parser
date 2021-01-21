@@ -1,0 +1,263 @@
+#!/usr/bin/perl
+# 
+# This is a program to show how to read a file, parse the data and store it.
+# 
+
+use strict;
+use warnings;
+
+# All data will be stored in this anonymous hash. We'll preset some values so that later, if we need to 
+# change any of them, they're all up here at the start of the file.
+my $conf = {
+	debug			=>	1,
+	datestamp		=>	'date +\%F'.
+	
+	path			=>	{
+				data	=>	{
+					hosts	=>	"/etc/hosts",
+				},
+			},
+	wanted_ips		=>	"10.20.",
+};
+
+# First up, lets read in /etc/hosts. The subroutine will return '1' on success and '0' on failure. As such,
+# we can use the returned value as a test to see if 
+read_hosts($conf) or die "There was an error while parsing: [".$conf->{path}{data}{hosts}."], unable to proceed.\n";
+
+# Now lets look through what we found! If you want to turn this off, change 'if (1)' to 'if (0)'.
+if (0)
+{
+	print "==] Hosts found by IP address. [==\n";
+	foreach my $ip (sort {$a cmp $b} keys %{$conf->{ips}})
+	{
+		print "IP: [".$ip."];\n";
+		foreach my $host (sort {$a cmp $b} @{$conf->{ips}{$ip}})
+		{
+			print " - Host: [".$host."]\n";
+		}
+	}
+}
+if (0)
+{
+	print "==] IPs found by host name. [==\n";
+	foreach my $host (sort {$a cmp $b} keys %{$conf->{hosts}})
+	{
+		print "Host: [".$host."];\n";
+		foreach my $ip (sort {$a cmp $b} keys %{$conf->{hosts}{$host}})
+		{
+			# Remember below how I said we only cared about the keys, not the value stored in it?
+			print " - IP: [".$ip."]\n";
+		}
+	}
+}
+
+# Now, in your program, you wanted to find the IP addresses on BCNs. So lets look through the IPs we found,
+# skipping any that don't start with '10.20.'.
+find_bcn_ips($conf);
+
+exit(0);
+
+#############################################################################################################
+# Subroutines                                                                                               #
+#############################################################################################################
+
+# Finds IPs pulled from path::data::hosts that start with 'wanted_ips'.
+sub find_bcn_ips
+{
+	my ($conf) = @_;
+	
+	### NOTE: https://github.com/mh-alteeve/striker-generate-stats/blob/master/simplescripts/statgrab#L30
+	###       Because we stored the IPs in a hash, if there had been a duplicate, it would simply have
+	###       used the same hash reference (because the IP was the key), and created a new host subhash.
+	###       As such, we've already dealt with duplicates.
+	# Using hash references inside regular expressions can get a touch tricky. So lets copy the 
+	# 'wanted_ips' into a string variable. Keeps things cleaner, too.
+	my $wanted_ips = $conf->{wanted_ips};
+	print __LINE__."; [ Debug ] - Searching parsed IP addresses for ones that start with: [".$wanted_ips."]\n" if $conf->{debug} >= 2;
+	foreach my $ip (sort {$a cmp $b} keys %{$conf->{ips}})
+	{
+		# Here, we us '\Q ... \E' to tell perl not to treat the '.' as wildcard characters. Without 
+		# them, IPs like 10.200.x.y would match because the '.' after '20' is interpretted as "match 
+		# any character". See 'perldoc perlre' for more info. You also wanted to have the third octet
+		# end in '0', so we'll manually add that using '\d{1,2}0\.' (any digit 1 or 2 characters long
+		# followed by a '0.').
+		next if $ip !~ /^\Q$wanted_ips\E\d{1,2}0\./;
+		print __LINE__."; [ Debug ] - IP: [".$ip."];\n" if $conf->{debug} >= 3;
+		foreach my $host (sort {$a cmp $b} @{$conf->{ips}{$ip}})
+		{
+			# NOTE: Here, we will see entries like 'an-a07n01', 'an-a07n01.bcn' and 
+			#       'an-a07n01.alteeve.ca', all of which point to the same machne. So to avoid
+			#       hitting a machine by all possible host names, we'll take only the short
+			#       part of the host name to store for scanning.
+			my $short_host =  $host;
+			   $short_host =~ s/\..*$//;
+			print __LINE__."; [ Debug ] -  - Host: [".$host."] -> short_host: [".$short_host."]\n" if $conf->{debug} >= 3;
+			
+			# Store the IP address of this short host name in a hash. This new hash will be the
+			# list we use to actuall make calls.
+			$conf->{to_scan}{$short_host} = $ip;
+			print __LINE__."; [ Debug ] -  - to_scan::".$short_host.": [".$conf->{to_scan}{$short_host}."]\n" if $conf->{debug} >= 3;
+		}
+	}
+	
+	# Now, we can walk through all the (short) host names and our list short be widdled down to uniq 
+	# machines, even when two or more machines share an IP.
+	print "Hosts on the BCN pulled from: [".$conf->{path}{data}{hosts}."];\n";
+	foreach my $short_host (sort {$a cmp $b} keys %{$conf->{to_scan}})
+	{
+		my $bcn_ip = $conf->{to_scan}{$short_host};
+		
+		my $type = "other";
+		if ($bcn_ip =~ /\.1$/)
+		{
+			$type = "node 1";
+		}
+		elsif ($bcn_ip =~ /\.2$/)
+		{
+			$type = "node 2";
+		}
+		# For fun, let's tell the user if this is node 1, node 2 or "other"
+		print "- host: [".$short_host." (".$type.")] at IP: [".$bcn_ip."]\n";
+	}
+	
+	return(0);
+}
+
+# This reads in and parse the hosts file. It is VERY inefficient in the process, but shows lots of concepts.
+sub read_hosts
+{
+	# Here, we're going to start passing the 'conf' hash reference into all subroutines so that's data we
+	# need is available, and data we collect is available elsewhere later.
+	my ($conf) = @_;
+	
+	# We've got a habit of storing what we'll read or the program we'll call in the "shell_call" 
+	# variable. This isn't needed, but it helps copy/pasting code blocks elsewhere.
+	my $success    = 1;
+	my $shell_call = $conf->{path}{data}{hosts};
+	
+	# Here, we see a fairly simple way of adding debug messages to a program. The print statement only
+	# executes if the conditional is met. This also shows the special '__LINE__' which prints the current
+	# line number.
+	print __LINE__."; [ Debug ] - About to read: [".$shell_call."]\n" if $conf->{debug} >= 2;
+	
+	# We'll keep a line counter going as we read through hosts. This way, if we hit an invalid entry, we
+	# can be helpful to the user by telling them where to look for the problem.
+	my $hosts_line = 0;
+	
+	### NOTE: You could also use 'IO::Handle' (see 'perldoc IO::Handle'), and arguably should, but most 
+	###       of our code doesn't use it.
+	# Here we open the file. The file handle is stored in the '$file_handle' string variable. The '<' 
+	# says to read the file in (as opposed to execute or write it). See 'perldoc -f open' for more info.
+	# If there is a fault. open returns '0' which triggers 'die'. We can get details on the error which
+	# is stored in the special '$!' variable. See perldoc perlvar for many other special variables.
+	open(my $file_handle, "<", $shell_call) or die "Failed to open: [".$shell_call."], the error was: [".$!."]\n";
+	# Wrapping the $file_handle in <> is a special thing that causes the 'while' loop to iterate on each 
+	# newline.
+	while(<$file_handle>)
+	{
+		# By default, the line is stored in the '$_' special variable. When most functions are called
+		# without any other argument, '$_' is what is worked on. So here, we use 'chomp' to remove 
+		# the new-line from the end of the '$_' line.
+		chomp;
+		
+		# Increment the line counter.
+		$hosts_line++;
+		
+		# Store the (now chomped) $_ into $line
+		my $line = $_;
+		print __LINE__."; [ Debug ] - hosts line: [".$line."]\n" if $conf->{debug} >= 3;
+		
+		# Now, lets skip and line starting with '#'. The '^' anchors the match to the start of the 
+		# line
+		next if $line =~ /^#/;
+		
+		# Now remote anything at/after a #, and the delete all the spaces at the end of the file. 
+		# Here the '.*' matches literally anyway, and the '$' anchors the match to the end of the 
+		# line. In this way, we're saying to remove #+anything to EOL.
+		$line =~ s/#.*$//;
+		$line =~ s/\s+$//;
+		
+		# Now skip if the line is empty. This works because 'not' matches "", 0 and 'undef'. 
+		next if not $line;
+		
+		# Now, pull the line apart if it looks like a standard IPv4 hosts line. We do this by testing
+		# if the line starts with a digit (1 to 3 digits long), followed by an (escaped .), four 
+		# times followed by some form of space, the any alphanumeric string through to the end of the
+		# line. The matches wrapped in () are stored in $# ($1, $2, ... $n) variables.
+		if ($line =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\s+(\w.*)$/)
+		{
+			my $octet_1   = $1;
+			my $octet_2   = $2;
+			my $octet_3   = $3;
+			my $octet_4   = $4;
+			my $addresses = $5;
+			print __LINE__."; [ Debug ] - octet_1: [".$octet_1."], octet_2: [".$octet_2."], octet_3: [".$octet_3."], octet_4: [".$octet_4."], addresses: [".$addresses."]\n" if $conf->{debug} >= 3;
+			
+			# Verify that the IP is sane (all octets are >= 0 and <= 255). We'll assemble the IP 
+			# into a string variable as well. Try causing an error or two in your hosts file to
+			# see how this reacts.
+			my $ip_address = $octet_1.".".$octet_2.".".$octet_3.".".$octet_4;
+			my $valid      = 1;
+			foreach my $octet ($octet_1, $octet_2, $octet_3, $octet_4)
+			{
+				print __LINE__."; [ Debug ] - octet: [".$octet."]\n" if $conf->{debug} >= 3;
+				if (($octet < 0) or ($octet > 255))
+				{
+					$valid   = 0;
+					$success = 0;
+					print __LINE__."; [ Debug ] - ip_address: [".$ip_address."], octet: [".$octet."], valid: [".$valid."], success: [".$success."]\n" if $conf->{debug} >= 1;
+					
+					# NOTE: We don't exit because, if there are other errors in the file,
+					#       we can notify the user and save the "fix" -> "find error" ->
+					#       "fix" -> "find error" loop.
+					print "[ Error ] - The IP address: [".$ip_address."] at line: [".$hosts_line."] in: [".$shell_call."] is not a valid IP address. Please fix and then run this program again.\n";
+				}
+			}
+			if ($valid)
+			{
+				# It's valid! Store any associated names in an anonymous array.
+				if (not exists $conf->{ips}{$ip_address})
+				{
+					# This is the first time we've seen the IP, so initialize the 
+					# anonymous array.
+					$conf->{ips}{$ip_address} = [];
+				}
+				
+				# Here, we split on spaces, so if theres two or more host names, we'll be 
+				# able to process them one at a time. We check for and clear leading/trailing
+				# spaces and check for empty strings. Shouldn't happen, but always expect 
+				# dirty input.
+				my @addresses = split/ /, $addresses;
+				foreach my $host (sort {$a cmp $b} @addresses)
+				{
+					# Remove any leading, then any trailing spaces.
+					$host =~ s/^\s+//;
+					$host =~ s/\s+$//;
+					
+					# Now here, we skip explicitely on empty strings. If, for some weird
+					# reason, the user had '0' set to resolve to a host name (probably
+					# not even valid, but...), we'd skip it. So to ensure that '0' gets
+					# through, we only skip on an actual empty string.
+					next if $host eq "";
+					print __LINE__."; [ Debug ] - host: [".$host."]\n" if $conf->{debug} >= 3;
+					
+					# Now we use the 'push' command to append the address to the IP array.
+					push @{$conf->{ips}{$ip_address}}, $host;
+					
+					# We can also store the host name, allowing for a host name to IP 
+					# lookup. We could store this in an array like we did above, but this
+					# time, lets use nested hashes. The '1' is just something to store, 
+					# it could as easily have been "" or even 'undef'. It's the existence
+					# of the nested hash that we'll use later.
+					$conf->{hosts}{$host}{$ip_address} = 1;
+					print __LINE__."; [ Debug ] - hosts::".$host."::".$ip_address.": [".$conf->{hosts}{$host}{$ip_address}."]\n" if $conf->{debug} >= 3;
+				}
+			}
+		}
+	}
+	# Close the file handle to free up memory
+	close $file_handle;
+	print __LINE__."; [ Debug ] - Finished parsing: [".$shell_call."]\n" if $conf->{debug} >= 2;
+	
+	return($success);
+}

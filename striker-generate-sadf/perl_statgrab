@@ -1,0 +1,63 @@
+#!/bin/env perl
+
+use warnings;
+use strict;
+use Text::CSV;
+use Data::Dumper;
+
+my $sysstat_directory 	= "/var/log/sa/";
+my $hostname		= `hostname -s`;
+my $cell_zero		= '# hostname';
+
+# Chomp [remove trailing record separator {\n}] $hostname for later use.
+
+chomp($hostname);
+
+# Create a directory handle to be used for filesystem functions
+opendir(my $directory_handle, $sysstat_directory) || die "Can't locate ".$sysstat_directory."\n";
+# Create an array of files matching a regexpression via the directory handle
+my @file_list 		= grep { /^sa[0-9]./ } readdir($directory_handle);
+## Output
+print <<EOF;
+============================================== Variables ===================================================
+Sysstat Directory....	$sysstat_directory\n 
+Cell Zero............   $cell_zero\n
+Hostname.............	$hostname\n
+EOF
+foreach my $filename (sort {$a cmp $b} @file_list)
+{
+	printf "Filepath.......	".$sysstat_directory.$filename."\n";
+	my $shell_call 	= "sadf -dht ".$sysstat_directory.$filename." -- -S -u -r -p -q -n DEV";
+
+	open(my $file_handle, "$shell_call 2>&1 |") || die "Failed to parse output of [".$shell_call."].\n";
+
+	my $csv_handle	= Text::CSV-> new ({	sep_char=>";",
+						blank_is_undef=>1});
+	my @columns = @{$csv_handle->getline ($file_handle)};
+	## Need to retrieve the network stat column names after IFACE and replicate for each IFACE
+	print Dumper @columns;
+	## Setting column names - At this point the array of names should be set as above
+	$csv_handle->column_names (@columns);
+	while (my $row = $csv_handle->getline_hr ($file_handle))
+	{
+		## Selection as below will be used to synthesize the percentage figures we use
+		#print $row->{'# hostname', }."\n";
+		## For now, getting a sense of the data structure to !!BUILD ACCESSORS AND CONSTRUCTORS!!
+		print Dumper $row;
+	}
+	close $file_handle;
+
+}
+# Array of filesystems found on the system
+
+##
+# ===========================================================================================================
+#  Functions
+# ===========================================================================================================
+#	shift(@csv_lines);
+#	print join(" ",@test_keys);
+#
+#	foreach my $line (@csv_lines)
+#	{
+#		print join("\n",@$line);
+#	}

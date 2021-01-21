@@ -1,0 +1,10 @@
+#!/usr/bin/perl
+
+use Text::CSV qw( csv );
+
+#my $aoh = csv (in => "data.csv",
+#		headers => "auto");
+
+my $aoa = csv {in => "data.csv"};
+
+csv (in => $aoa, out => "file.csv", sep_char=> ",");
